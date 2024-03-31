@@ -38,7 +38,7 @@ class Enhancer:
         if adaptive_key == 'auto':
             adaptive_key = 12 * np.log2(float(torch.max(f0) / 760))
             adaptive_key = max(0, np.ceil(adaptive_key))
-            print('auto_adaptive_key: ' + str(int(adaptive_key)))
+            #print('auto_adaptive_key: ' + str(int(adaptive_key)))
         else:
             adaptive_key = float(adaptive_key)
         

@@ -7,6 +7,9 @@ from torchaudio.transforms import Resample
 from ddsp.vocoder import load_model, F0_Extractor, Volume_Extractor, Units_Encoder
 from ddsp.core import upsample
 import time
+import _thread
+from pynput import keyboard
+# NOTE on M1 macs this requires the cffi package
 
 flag_vc = False
 
@@ -42,6 +45,7 @@ class SvcDDSP:
 
     def update_model(self, model_path):
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print("Using",self.device)
 
         # load ddsp model
         if self.model is None or self.model_path != model_path:
@@ -85,10 +89,11 @@ class SvcDDSP:
               f0_max=1100,
               safe_prefix_pad_length=0,
               ):
-        print("Infering...")
+        
         # load input
         # audio, sample_rate = librosa.load(input_wav, sr=None, mono=True)
         hop_size = self.args.data.block_size * sample_rate / self.args.data.sampling_rate
+    
         # safe front silence
         if safe_prefix_pad_length > 0.03:
             silence_front = safe_prefix_pad_length - 0.03
@@ -158,7 +163,7 @@ class Config:
         self.threhold = -45
         self.crossfade_time = 0.04
         self.extra_time = 2.0
-        self.select_pitch_extractor = 'harvest'  # ["parselmouth", "dio", "harvest", "crepe", "rmvpe", "fcpe"]
+        self.select_pitch_extractor = 'rmvpe'  # ["parselmouth", "dio", "harvest", "crepe", "rmvpe", "fcpe"]
         self.use_spk_mix = False
         self.sounddevices = ['', '']
 
@@ -203,8 +208,64 @@ class App:
         self.output_devices_indices = None
         self.update_devices()
         self.default_input_device = self.input_devices[self.input_devices_indices.index(sd.default.device[0])]
-        self.default_output_device = self.output_devices[self.output_devices_indices.index(sd.default.device[1])]
-        self.start_vc()
+        self.default_output_device = self.output_devices[self.output_devices_indices.index(sd.default.device[1])]        
+
+    def launch(self) -> None:
+        print("press s to start/stop, q to quit")
+        self.event_handler()
+
+    def event_handler(self):
+        global flag_vc
+        while True:
+            key = input()
+            if key=="s" and not flag_vc:
+                print("Starting voice conversion")        
+                self.start_vc()
+            elif key=="s" and flag_vc:
+                print("Stopping voice conversion")        
+                self.stop_stream()
+                print("\npress s to start/stop, in/on to change in/out device, q to quit")
+            elif key.startswith("i"):
+                i = self.input_devices[int(key[1:].strip())]
+                o = self.config.sounddevices[1]
+                self.set_devices(i,o)
+            elif key.startswith("o"):
+                i = self.config.sounddevices[0]
+                o = self.output_devices[int(key[1:].strip())]
+                self.set_devices(i,o)
+            elif key=="q":
+                flag_vc = False
+                exit()
+
+        return 
+        def on_key_press(key):
+            global flag_vc
+            # print("Key pressed: ", key)
+            # so this is a bit of a quirk with pynput,
+            # if an alpha-numeric key is pressed the key object will have an attribute
+            # char which contains a string with the character, but it will only have
+            # this attribute with alpha-numeric, so if a special key is pressed
+            # this attribute will not be in the object.
+            # so, we end up having to check if the attribute exists with the hasattr
+            # function in python, and then check the character
+            # here is that in action:
+            if hasattr(key, "char"):
+                if key.char == "s":
+                    if not flag_vc:
+                        print("Starting voice conversion")
+                        self.start_vc()
+                    else:
+                        print("Stopping voice conversion")
+                        self.stop_stream()
+                elif key.char == "q":
+                    flag_vc = False
+                    keyboard_listener.stop()
+                    keyboard_listener.join()
+                    exit()
+        keyboard_listener = keyboard.Listener(
+            on_press=on_key_press)
+        keyboard_listener.start()                            
+        
 
     def __del__(self) -> None:
         self.stop_stream()
@@ -234,21 +295,6 @@ class App:
             self.block_frame + self.extra_frame)
         self.f_safe_prefix_pad_length = self.config.extra_time - self.config.crossfade_time - 0.01 - 0.02
 
-    def update_values(self):
-        self.window['sg_model'].update(self.config.checkpoint_path)
-        self.window['sg_input_device'].update(self.config.sounddevices[0])
-        self.window['sg_output_device'].update(self.config.sounddevices[1])
-        self.window['spk_id'].update(self.config.spk_id)
-        self.window['threhold'].update(self.config.threhold)
-        self.window['pitch'].update(self.config.f_pitch_change)
-        self.window['samplerate'].update(self.config.samplerate)
-        self.window['spk_mix'].update(self.config.use_spk_mix)
-        self.window['block'].update(self.config.block_time)
-        self.window['crossfade'].update(self.config.crossfade_time)
-        self.window['extra'].update(self.config.extra_time)
-        self.window['f0_mode'].update(self.config.select_pitch_extractor)
-        self.window['use_enhancer'].update(self.config.use_vocoder_based_enhancer)
-
     def start_vc(self):
         torch.cuda.empty_cache()
         self.input_wav = np.zeros(self.input_frame, dtype='float32')
@@ -264,7 +310,7 @@ class App:
         if not flag_vc:
             flag_vc = True
             self.stream = sd.Stream(
-                channels=2,
+                channels=1,
                 callback=self.audio_callback,
                 blocksize=self.block_frame,
                 samplerate=self.config.samplerate,
@@ -282,7 +328,7 @@ class App:
                 
     def audio_callback(self, indata: np.ndarray, outdata: np.ndarray, frames, times, status):
         start_time = time.perf_counter()
-        print("\nStarting callback")
+        
         self.input_wav[:] = np.roll(self.input_wav, -self.block_frame)
         self.input_wav[-self.block_frame:] = librosa.to_mono(indata.T)
 
@@ -324,8 +370,7 @@ class App:
         cor_den = torch.sqrt(
             F.conv1d(conv_input ** 2, torch.ones(1, 1, self.crossfade_frame, device=self.device)) + 1e-8)
         sola_shift = torch.argmax(cor_nom[0, 0] / cor_den[0, 0])
-        temp_wav = temp_wav[sola_shift: sola_shift + self.block_frame + self.crossfade_frame]
-        print('sola_shift: ' + str(int(sola_shift)))
+        temp_wav = temp_wav[sola_shift: sola_shift + self.block_frame + self.crossfade_frame]        
 
         # phase vocoder
         if self.config.use_phase_vocoder:
@@ -340,12 +385,12 @@ class App:
 
         self.sola_buffer = temp_wav[- self.crossfade_frame:]
 
-        outdata[:] = temp_wav[: - self.crossfade_frame, None].repeat(1, 2).cpu().numpy()
+        #outdata[:] = temp_wav[: - self.crossfade_frame, None].repeat(1, 2).cpu().numpy()
+        outdata[:] = temp_wav[: - self.crossfade_frame, None].cpu().numpy() # quito el repeat???
         end_time = time.perf_counter()
-        print('infer_time: ' + str(end_time - start_time))
         if flag_vc:
-            self.window['infer_time'].update(int((end_time - start_time) * 1000))
-
+            print(f'Infering, sola_shift: {int(sola_shift)}, infer_time: {(end_time - start_time)*1000}',end="\r")
+""
     def update_devices(self):
         sd._terminate()
         sd._initialize()
@@ -369,12 +414,44 @@ class App:
             d["index"] for d in devices if d["max_output_channels"] > 0
         ]
 
+        print("Input devices:")
+        print("-------------")
+        for idx,dev in enumerate(self.input_devices):
+            print(f"i{idx}: {dev}")
+        print("Output devices:")
+        print("--------------")
+        for idx,dev in enumerate(self.output_devices):
+            print(f"o{idx}: {dev}")
+
     def set_devices(self, input_device, output_device):
         sd.default.device[0] = self.input_devices_indices[self.input_devices.index(input_device)]
         sd.default.device[1] = self.output_devices_indices[self.output_devices.index(output_device)]
-        print("input device:" + str(sd.default.device[0]) + ":" + str(input_device))
-        print("output device:" + str(sd.default.device[1]) + ":" + str(output_device))
-
-
+        print("input device set to:" + str(sd.default.device[0]) + ":" + str(input_device))
+        print("output device set to:" + str(sd.default.device[1]) + ":" + str(output_device))
+    
 if __name__ == "__main__":
-    gui = App()
+    app = App()
+    # app.config.load("exp/combsum/config.yaml") # `config.yaml` path model_30000.pt
+
+    values = dict()
+    values['sg_input_device'] = 'MacBook Air Microphone (Core Audio)'
+    values['sg_output_device'] = 'MacBook Air Speakers (Core Audio)'
+    values['sg_model'] = "exp/combsum/model_10000.pt" # app.config.checkpoint_path
+    values['spk_id'] = app.config.spk_id
+    values['threhold'] = app.config.threhold
+    values['pitch'] = app.config.f_pitch_change
+    values['samplerate'] = app.config.samplerate
+    values['block'] = app.config.block_time
+    values['crossfade'] = app.config.crossfade_time
+    values['extra'] = app.config.extra_time
+    values['f0_mode'] = app.config.select_pitch_extractor
+    values['use_enhancer'] = app.config.use_vocoder_based_enhancer
+    values['use_phase_vocoder'] = app.config.use_phase_vocoder
+    values['spk_mix'] = app.config.use_spk_mix
+
+    app.set_values(values)
+
+    app.update_devices()
+
+    app.launch()
+
