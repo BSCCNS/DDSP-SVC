@@ -211,7 +211,7 @@ class App:
         self.default_output_device = self.output_devices[self.output_devices_indices.index(sd.default.device[1])]        
 
     def launch(self) -> None:
-        print("press s to start/stop, q to quit")
+        print("\enter s to start/stop, in/on to change in/out device, q to quit")
         self.event_handler()
 
     def event_handler(self):
@@ -224,7 +224,7 @@ class App:
             elif key=="s" and flag_vc:
                 print("Stopping voice conversion")        
                 self.stop_stream()
-                print("\npress s to start/stop, in/on to change in/out device, q to quit")
+                print("\enter s to start/stop, in/on to change in/out device, q to quit")
             elif key.startswith("i"):
                 i = self.input_devices[int(key[1:].strip())]
                 o = self.config.sounddevices[1]
@@ -390,7 +390,7 @@ class App:
         end_time = time.perf_counter()
         if flag_vc:
             print(f'Infering, sola_shift: {int(sola_shift)}, infer_time: {(end_time - start_time)*1000}',end="\r")
-""
+
     def update_devices(self):
         sd._terminate()
         sd._initialize()
