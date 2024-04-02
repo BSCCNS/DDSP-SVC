@@ -160,7 +160,7 @@ if __name__ == '__main__':
     
     # load ddsp model
     model, args = load_model(cmd.model_path, device=device)
-    
+    print("ARGS\n",args,"\nARGS")
     # load input
     audio, sample_rate = librosa.load(cmd.input, sr=None)
     if len(audio.shape) > 1:

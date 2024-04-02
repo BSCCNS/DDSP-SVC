@@ -1,4 +1,5 @@
 import sounddevice as sd
+import soundfile as sf
 import torch, librosa, threading, pickle
 from enhancer import Enhancer
 import numpy as np
@@ -8,8 +9,8 @@ from ddsp.vocoder import load_model, F0_Extractor, Volume_Extractor, Units_Encod
 from ddsp.core import upsample
 import time
 import _thread
-from pynput import keyboard
 # NOTE on M1 macs this requires the cffi package
+#from pynput import keyboard 
 
 flag_vc = False
 
@@ -44,7 +45,7 @@ class SvcDDSP:
         self.enhancer_ckpt = None
 
     def update_model(self, model_path):
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu' # 'mps'
         print("Using",self.device)
 
         # load ddsp model
@@ -78,7 +79,7 @@ class SvcDDSP:
               audio,
               sample_rate,
               spk_id=1,
-              threhold=-45,
+              threhold=-55,
               pitch_adjust=0,
               use_spk_mix=False,
               spk_mix_dict=None,
@@ -153,7 +154,7 @@ class SvcDDSP:
 class Config:
     def __init__(self) -> None:
         self.samplerate = 44100  # Hz
-        self.block_time = 0.3  # s
+        self.block_time = 2.0  # s
         self.f_pitch_change: float = 0.0  # float(request_form.get("fPitchChange", 0))
         self.spk_id = 1
         self.spk_mix_dict = None  # {1:0.5, 2:0.5}
@@ -161,7 +162,7 @@ class Config:
         self.use_phase_vocoder = False
         self.checkpoint_path = ''
         self.threhold = -45
-        self.crossfade_time = 0.04
+        self.crossfade_time = 0.05
         self.extra_time = 2.0
         self.select_pitch_extractor = 'rmvpe'  # ["parselmouth", "dio", "harvest", "crepe", "rmvpe", "fcpe"]
         self.use_spk_mix = False
@@ -179,7 +180,7 @@ class Config:
         except:
             print('config.pkl does not exist')
             return False
-    
+
     def update(self, data_dict):
         for key, value in data_dict.items():
             setattr(self, key, value)
@@ -191,7 +192,7 @@ class App:
         self.block_frame = 0
         self.crossfade_frame = 0
         self.sola_search_frame = 0
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu' # 'mps'
         self.svc_model: SvcDDSP = SvcDDSP()
         self.fade_in_window: np.ndarray = None
         self.fade_out_window: np.ndarray = None
@@ -236,7 +237,10 @@ class App:
             elif key=="q":
                 flag_vc = False
                 exit()
-
+            elif key.startswith("S"):
+                path = key[1:].strip()
+                self.savewav(path)
+ 
         return 
         def on_key_press(key):
             global flag_vc
@@ -293,7 +297,7 @@ class App:
         self.input_frame = max(
             self.block_frame + self.crossfade_frame + self.sola_search_frame + 2 * self.last_delay_frame,
             self.block_frame + self.extra_frame)
-        self.f_safe_prefix_pad_length = self.config.extra_time - self.config.crossfade_time - 0.01 - 0.02
+        self.f_safe_prefix_pad_length = self.config.extra_time - self.config.crossfade_time - 0.01 - 0.02 
 
     def start_vc(self):
         torch.cuda.empty_cache()
@@ -378,15 +382,19 @@ class App:
                 self.sola_buffer,
                 temp_wav[: self.crossfade_frame],
                 self.fade_out_window,
+                
                 self.fade_in_window)
         else:
-            temp_wav[: self.crossfade_frame] *= self.fade_in_window
-            temp_wav[: self.crossfade_frame] += self.sola_buffer * self.fade_out_window
+            pass
+            #temp_wav[: self.crossfade_frame] *= self.fade_in_window
+            #temp_wav[: self.crossfade_frame] += self.sola_buffer * self.fade_out_window
 
         self.sola_buffer = temp_wav[- self.crossfade_frame:]
 
-        #outdata[:] = temp_wav[: - self.crossfade_frame, None].repeat(1, 2).cpu().numpy()
-        outdata[:] = temp_wav[: - self.crossfade_frame, None].cpu().numpy() # quito el repeat???
+        # quito el repeat, creo que es porque espera 2 canales y en Mac hay 1
+        #outdata[:] = temp_wav[: - self.crossfade_frame, None].repeat(2,1).cpu().numpy()
+        outdata[:] = temp_wav[: - self.crossfade_frame, None].cpu().numpy() 
+        self.output_wav = np.append(self.output_wav, outdata)
         end_time = time.perf_counter()
         if flag_vc:
             print(f'Infering, sola_shift: {int(sola_shift)}, infer_time: {(end_time - start_time)*1000}',end="\r")
@@ -429,14 +437,17 @@ class App:
         print("input device set to:" + str(sd.default.device[0]) + ":" + str(input_device))
         print("output device set to:" + str(sd.default.device[1]) + ":" + str(output_device))
     
+    def savewav(self, path):
+        sf.write(path, self.output_wav, 44100)
+
 if __name__ == "__main__":
     app = App()
     # app.config.load("exp/combsum/config.yaml") # `config.yaml` path model_30000.pt
 
     values = dict()
-    values['sg_input_device'] = 'MacBook Air Microphone (Core Audio)'
-    values['sg_output_device'] = 'MacBook Air Speakers (Core Audio)'
-    values['sg_model'] = "exp/combsum/model_10000.pt" # app.config.checkpoint_path
+    values['sg_input_device'] = app.input_devices[0] #'MacBook Air Microphone (Core Audio)'
+    values['sg_output_device'] = app.output_devices[0] # 'MacBook Air Speakers (Core Audio)'
+    values['sg_model'] = "exp/combsum/model_200000.pt" # app.config.checkpoint_path
     values['spk_id'] = app.config.spk_id
     values['threhold'] = app.config.threhold
     values['pitch'] = app.config.f_pitch_change
