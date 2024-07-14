@@ -133,7 +133,11 @@ class AudioDataset(Dataset):
             path_f0 = os.path.join(self.path_root, 'f0', name_ext) + '.npy'
             f0 = np.load(path_f0)
             f0 = torch.from_numpy(f0).float().unsqueeze(-1).to(device)
-                
+
+            path_physical = os.path.join(self.path_root, 'physical', name_ext) + '.npy'
+            physical = np.load(path_physical)
+            physical = torch.from_numpy(physical).float().unsqueeze(-1).to(device)
+
             path_volume = os.path.join(self.path_root, 'volume', name_ext) + '.npy'
             volume = np.load(path_volume)
             volume = torch.from_numpy(volume).float().unsqueeze(-1).to(device)
@@ -174,6 +178,7 @@ class AudioDataset(Dataset):
                     mel = mel.half()
                     aug_mel = aug_mel.half()
                     units = units.half()
+                    physical = physical.half()
                     
                 self.data_buffer[name_ext] = {
                         'duration': duration,
@@ -181,6 +186,7 @@ class AudioDataset(Dataset):
                         'aug_mel': aug_mel,
                         'units': units,
                         'f0': f0,
+                        'physical': physical,
                         'volume': volume,
                         'aug_vol': aug_vol,
                         'spk_id': spk_id
@@ -260,19 +266,34 @@ class AudioDataset(Dataset):
         if aug_flag:
             aug_shift = self.pitch_aug_dict[name_ext]
         f0_frames = 2 ** (aug_shift / 12) * f0[start_frame : start_frame + units_frame_len]
-        
+
+        # load physical
+        physical = data_buffer.get('physical')
+        if physical is None:
+            physical = os.path.join(self.path_root, 'physical', name_ext) + '.npy'
+            physical = np.load(physical)
+            physical_frames = physical[start_frame : start_frame + units_frame_len]
+            physical_frames = torch.from_numpy(physical).float() 
+        else:
+            physical_frames = physical[start_frame : start_frame + units_frame_len]
+
+        vol_key = 'aug_vol' if aug_flag else 'volume'
+        volume = data_buffer.get(vol_key)
+        volume_frames = volume[start_frame : start_frame + units_frame_len]        
+                
         # load volume
         vol_key = 'aug_vol' if aug_flag else 'volume'
         volume = data_buffer.get(vol_key)
         volume_frames = volume[start_frame : start_frame + units_frame_len]
-        
+
         # load spk_id
         spk_id = data_buffer.get('spk_id')
         
         # load shift
         aug_shift = torch.from_numpy(np.array([[aug_shift]])).float()
         
-        return dict(mel=mel, f0=f0_frames, volume=volume_frames, units=units, spk_id=spk_id, aug_shift=aug_shift, name=name, name_ext=name_ext)
+        return dict(mel=mel, f0=f0_frames, volume=volume_frames, units=units, physical=physical_frames,                    
+                    spk_id=spk_id, aug_shift=aug_shift, name=name, name_ext=name_ext)
 
     def __len__(self):
         return len(self.paths)

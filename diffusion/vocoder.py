@@ -66,7 +66,19 @@ def load_model_vocoder(
                 vocoder.dimension,
                 args.model.n_layers,
                 args.model.n_chans)
-                
+
+    elif args.model.type == 'DiffusionPINN':
+        model = Unit2WavPINN(
+                args.data.sampling_rate,
+                args.data.block_size,
+                args.model.win_length,
+                args.data.encoder_out_channels, 
+                args.model.n_spk,
+                args.model.use_pitch_aug,
+                vocoder.dimension,
+                args.model.n_layers,
+                args.model.n_chans)
+                        
     else:
         raise ValueError(f" [x] Unknown Model: {args.model.type}")
         
@@ -243,6 +255,9 @@ class Unit2Wav(nn.Module):
         return: 
             dict of B x n_frames x feat
         '''
+        print("En vocoder")
+        import pdb;pdb.set_trace()
+
         ddsp_wav, hidden, (_, _) = self.ddsp_model(units, f0, volume, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift, infer=infer)
         if vocoder is not None:
             ddsp_mel = vocoder.extract(ddsp_wav)
@@ -296,7 +311,7 @@ class Unit2WavFast(nn.Module):
             ddsp_mel = vocoder.extract(ddsp_wav)
         else:
             ddsp_mel = None
-            
+                    
         if not infer:
             ddsp_loss = F.mse_loss(ddsp_mel, gt_spec)
             diff_loss = self.diff_model(ddsp_mel, gt_spec=gt_spec, k_step=k_step, infer=False)
@@ -306,6 +321,88 @@ class Unit2WavFast(nn.Module):
                 ddsp_mel = gt_spec
             if k_step > 0:
                 mel = self.diff_model(ddsp_mel, gt_spec=ddsp_mel, infer=True, infer_speedup=infer_speedup, method=method, k_step=k_step, use_tqdm=use_tqdm)
+            else:
+                mel = ddsp_mel
+            if return_wav:
+                return vocoder.infer(mel, f0)
+            else:
+                return mel
+            
+
+
+class Unit2WavPINN(nn.Module):
+    def __init__(
+            self,
+            sampling_rate,
+            block_size,
+            win_length,
+            n_unit,
+            n_spk,
+            use_pitch_aug=False,
+            out_dims=128,
+            n_layers=6, 
+            n_chans=512,
+            physical_dims=1):
+        super().__init__()
+        self.ddsp_model = CombSubSuperFast(sampling_rate, block_size, win_length, n_unit, n_spk, use_pitch_aug)
+        self.diff_model = GaussianDiffusion(NaiveV2Diff(mel_channels=out_dims, dim=n_chans, num_layers=n_layers, condition_dim=out_dims+physical_dims, use_mlp=False), out_dims=out_dims)
+
+    def forward(self, units, f0, volume, conditioner=None, spk_id=None, spk_mix_dict=None, aug_shift=None, vocoder=None,
+                gt_spec=None, infer=True, return_wav=False, infer_speedup=10, method='dpm-solver', k_step=None, use_tqdm=True):
+        
+        '''
+        input: 
+            B x n_frames x n_unit
+        return: 
+            dict of B x n_frames x feat
+        '''
+        ddsp_wav, hidden, (_, _) = self.ddsp_model(units, f0, volume, spk_id=spk_id, spk_mix_dict=spk_mix_dict, aug_shift=aug_shift, infer=infer)
+        if vocoder is not None:
+            ddsp_mel = vocoder.extract(ddsp_wav)
+        else:
+            ddsp_mel = None
+
+        # f0 es shape batch, time, 1
+        # idea: torch.cat((ddsp_mel,f0),2) (queda shape= batch, time, melbands+1
+        # si quiero poner mas numeros por tiempo, tendria que ser 
+        # batch, time, melbands + N
+        # CUIDADO : Hay que avisarle al constructor de NaiveV2Diff que el conditioner
+        # tiene mas dimensiones
+        # TODO AQUI VA LA MEZCLA ENTRE EL MEL Y EL PHYSICAL MODEL            
+        if conditioner is None: # TODO look for a better default
+            cond = f0
+        else:
+            cond = torch.cat((ddsp_mel,conditioner),2) # TODO look for better combination, maybe I should embed
+        ###         
+        ### quizas algo como esto
+        # Shared embedding
+        #embedding_layer = Embedding(input_dim = vocab_size+1, output_dim = emb_dim, input_length = nb_timesteps, mask_zero = True)
+        # For every features we have it's own input
+        #feature_inputs = [Input(shape=(nb_timesteps, ), name='feature_' + str(i + 1)) for i in range(nb_features)]
+        # Repeat this for every feature
+        #feature_embeddings = [embedding_layer(f) for f in feature_inputs]
+        #
+        # Concatenate the embedding outputs
+        #concatenated_embeddings = concatenate(feature_embeddings, axis=-1)
+        #
+        #lstm_1 = LSTM(output_dim)(concatenated_embeddings)
+        #
+        #output_layer = Dense(nb_classes, activation='softmax')(lstm_1)
+        #
+        #model = Model(inputs=feature_inputs, outputs=output_layer, name="Multi_feature_Embedding_LSTM")
+        ####
+        # o si no una conv2d para el mel y un linear o embedding para el physical...
+        #### 
+
+        if not infer:
+            ddsp_loss = F.mse_loss(ddsp_mel, gt_spec)
+            diff_loss = self.diff_model(cond, gt_spec=gt_spec, k_step=k_step, infer=False)
+            return ddsp_loss, diff_loss
+        else:
+            if gt_spec is not None and ddsp_mel is None:
+                ddsp_mel = gt_spec
+            if k_step > 0:
+                mel = self.diff_model(cond, gt_spec=ddsp_mel, infer=True, infer_speedup=infer_speedup, method=method, k_step=k_step, use_tqdm=use_tqdm)
             else:
                 mel = ddsp_mel
             if return_wav:

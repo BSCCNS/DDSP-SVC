@@ -80,6 +80,7 @@ class NaiveV2DiffLayer(nn.Module):
 
     def forward(self, x, condition=None, diffusion_step=None) -> torch.Tensor:
         res_x = x.transpose(1, 2)
+
         x = x + self.diffusion_step_projection(diffusion_step) + self.condition_projection(condition)
         x = x.transpose(1, 2)
 
@@ -172,6 +173,7 @@ class NaiveV2Diff(nn.Module):
     def forward(self, spec, diffusion_step, cond):
         x = spec
         conditioner = cond
+
         """
 
         :param x: [B, M, T]

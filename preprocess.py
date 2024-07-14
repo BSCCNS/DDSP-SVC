@@ -37,6 +37,7 @@ def preprocess(path, f0_extractor, volume_extractor, mel_extractor, units_encode
     path_srcdir  = os.path.join(path, 'audio')
     path_unitsdir  = os.path.join(path, 'units')
     path_f0dir  = os.path.join(path, 'f0')
+    path_physicaldir  = os.path.join(path, 'physical')
     path_volumedir  = os.path.join(path, 'volume')
     path_augvoldir  = os.path.join(path, 'aug_vol')
     path_meldir  = os.path.join(path, 'mel')
@@ -60,6 +61,7 @@ def preprocess(path, f0_extractor, volume_extractor, mel_extractor, units_encode
         path_srcfile = os.path.join(path_srcdir, file)
         path_unitsfile = os.path.join(path_unitsdir, binfile)
         path_f0file = os.path.join(path_f0dir, binfile)
+        path_physicalfile = os.path.join(path_physicaldir, binfile)
         path_volumefile = os.path.join(path_volumedir, binfile)
         path_augvolfile = os.path.join(path_augvoldir, binfile)
         path_melfile = os.path.join(path_meldir, binfile)
@@ -110,6 +112,8 @@ def preprocess(path, f0_extractor, volume_extractor, mel_extractor, units_encode
             np.save(path_unitsfile, units)
             os.makedirs(os.path.dirname(path_f0file), exist_ok=True)
             np.save(path_f0file, f0)
+            os.makedirs(os.path.dirname(path_physicalfile), exist_ok=True)
+            np.save(path_physicalfile, f0) # TODO REPLACE WITH PHYSICAL MODEL            
             os.makedirs(os.path.dirname(path_volumefile), exist_ok=True)
             np.save(path_volumefile, volume)
             if mel_extractor is not None:

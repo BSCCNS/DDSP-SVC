@@ -224,6 +224,7 @@ class GaussianDiffusion(nn.Module):
         """
             conditioning diffusion, use fastspeech2 encoder output as the condition
         """
+
         cond = condition.transpose(1, 2)
         b, device = condition.shape[0], condition.device
 
