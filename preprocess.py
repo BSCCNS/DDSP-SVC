@@ -10,6 +10,7 @@ import shutil
 from logger import utils
 from tqdm import tqdm
 from ddsp.vocoder import F0_Extractor, Volume_Extractor, Units_Encoder
+from physical import gfmdriver as Phys_Model
 from diffusion.vocoder import Vocoder
 from logger.utils import traverse_dir
 import concurrent.futures
@@ -32,7 +33,7 @@ def parse_args(args=None, namespace=None):
         help="cpu or cuda, auto if not set")
     return parser.parse_args(args=args, namespace=namespace)
     
-def preprocess(path, f0_extractor, volume_extractor, mel_extractor, units_encoder, sample_rate, hop_size, device = 'cuda', use_pitch_aug = False, extensions = ['wav']):
+def preprocess(path, f0_extractor, volume_extractor, mel_extractor, phys_extractor, units_encoder, sample_rate, hop_size, device = 'cuda', use_pitch_aug = False, extensions = ['wav']):
     
     path_srcdir  = os.path.join(path, 'audio')
     path_unitsdir  = os.path.join(path, 'units')
@@ -101,7 +102,14 @@ def preprocess(path, f0_extractor, volume_extractor, mel_extractor, units_encode
         
         # extract f0
         f0 = f0_extractor.extract(audio, uv_interp = False)
-        
+
+        ### phys_extractor    
+        # 
+        phys = phys_extractor.extract(audio)
+        # 
+        # 
+        # 
+        #         
         uv = f0 == 0
         if len(f0[~uv]) > 0:
             # interpolate the unvoiced f0
@@ -129,6 +137,8 @@ def preprocess(path, f0_extractor, volume_extractor, mel_extractor, units_encode
             os.makedirs(os.path.dirname(path_skipfile), exist_ok=True)
             shutil.move(path_srcfile, os.path.dirname(path_skipfile))
             print('This file has been moved to ' + path_skipfile)
+
+
     print('Preprocess the audio clips in :', path_srcdir)
     
     # single process
@@ -170,6 +180,12 @@ if __name__ == '__main__':
     # initialize volume extractor
     volume_extractor = Volume_Extractor(args.data.block_size)
     
+    # initialize physical model extractor
+    phys_extractor = Phys_Model(args.data.sampling_rate,
+                                args.data.block_size,
+                                args.data.block_size/8 # TODO MAGIC NUMBER HERE, PUT IN PARAMS
+                                )
+    
     # initialize mel extractor
     mel_extractor = None
     use_pitch_aug = False
@@ -195,8 +211,8 @@ if __name__ == '__main__':
                         device = device)    
     
     # preprocess training set
-    preprocess(args.data.train_path, f0_extractor, volume_extractor, mel_extractor, units_encoder, sample_rate, hop_size, device = device, use_pitch_aug = use_pitch_aug, extensions = extensions)
+    preprocess(args.data.train_path, f0_extractor, volume_extractor, mel_extractor, phys_extractor, units_encoder, sample_rate, hop_size, device = device, use_pitch_aug = use_pitch_aug, extensions = extensions)
     
     # preprocess validation set
-    preprocess(args.data.valid_path, f0_extractor, volume_extractor, mel_extractor, units_encoder, sample_rate, hop_size, device = device, use_pitch_aug = False, extensions = extensions)
+    preprocess(args.data.valid_path, f0_extractor, volume_extractor, mel_extractor, phys_extractor, units_encoder, sample_rate, hop_size, device = device, use_pitch_aug = False, extensions = extensions)
     
