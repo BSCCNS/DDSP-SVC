@@ -135,7 +135,7 @@ class AudioDataset(Dataset):
             f0 = torch.from_numpy(f0).float().unsqueeze(-1).to(device)
 
             path_physical = os.path.join(self.path_root, 'physical', name_ext) + '.npy'
-            physical = np.load(path_physical)
+            physical = np.load(path_physical)[:,0]
             physical = torch.from_numpy(physical).float().unsqueeze(-1).to(device)
 
             path_volume = os.path.join(self.path_root, 'volume', name_ext) + '.npy'
@@ -271,7 +271,7 @@ class AudioDataset(Dataset):
         physical = data_buffer.get('physical')
         if physical is None:
             physical = os.path.join(self.path_root, 'physical', name_ext) + '.npy'
-            physical = np.load(physical)
+            physical = np.load(physical)[:,0]
             physical_frames = physical[start_frame : start_frame + units_frame_len]
             physical_frames = torch.from_numpy(physical).float() 
         else:
@@ -292,7 +292,7 @@ class AudioDataset(Dataset):
         # load shift
         aug_shift = torch.from_numpy(np.array([[aug_shift]])).float()
         
-        return dict(mel=mel, f0=f0_frames, volume=volume_frames, units=units, physical=physical_frames[:,0],                    
+        return dict(mel=mel, f0=f0_frames, volume=volume_frames, units=units, physical=physical_frames,                    
                     spk_id=spk_id, aug_shift=aug_shift, name=name, name_ext=name_ext)
 
     def __len__(self):
