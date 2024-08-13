@@ -1,4 +1,4 @@
-from gfm import Resynth
+from .gfm import Resynth
 import json
 class GFMDriver:
     model = None
@@ -110,10 +110,10 @@ class GFMDriver:
     def set_blocks(self,val):
         self.model.process_blocks=int(val.value)
 
-    def extract(self, audio):
+    def extract(self, audio, pad=False):
         self.model.fs = self.samplerate
         self.model.framelength = self.framelength
         self.model.hoplength = self.hoplength
-        return self.model.process( audio, return_parameters=True)
+        return self.model.process( audio, return_parameters=True, pad=pad)
 
 ### 

@@ -368,7 +368,7 @@ class Unit2WavPINN(nn.Module):
         # batch, time, melbands + N
         # CUIDADO : Hay que avisarle al constructor de NaiveV2Diff que el conditioner
         # tiene mas dimensiones
-        # TODO AQUI VA LA MEZCLA ENTRE EL MEL Y EL PHYSICAL MODEL            
+        # TODO AQUI VA LA MEZCLA ENTRE EL MEL Y EL PHYSICAL MODEL    
         if conditioner is None: # TODO look for a better default
             cond = f0
         else:

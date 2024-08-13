@@ -292,7 +292,7 @@ class AudioDataset(Dataset):
         # load shift
         aug_shift = torch.from_numpy(np.array([[aug_shift]])).float()
         
-        return dict(mel=mel, f0=f0_frames, volume=volume_frames, units=units, physical=physical_frames,                    
+        return dict(mel=mel, f0=f0_frames, volume=volume_frames, units=units, physical=physical_frames[:,0],                    
                     spk_id=spk_id, aug_shift=aug_shift, name=name, name_ext=name_ext)
 
     def __len__(self):

@@ -105,11 +105,9 @@ def preprocess(path, f0_extractor, volume_extractor, mel_extractor, phys_extract
 
         ### phys_extractor    
         # 
-        phys = phys_extractor.extract(audio)
+        phys = phys_extractor.extract(audio, pad=True)
         # 
-        # 
-        # 
-        #         
+        assert phys.shape[0]==f0.shape[0]
         uv = f0 == 0
         if len(f0[~uv]) > 0:
             # interpolate the unvoiced f0
@@ -121,7 +119,7 @@ def preprocess(path, f0_extractor, volume_extractor, mel_extractor, phys_extract
             os.makedirs(os.path.dirname(path_f0file), exist_ok=True)
             np.save(path_f0file, f0)
             os.makedirs(os.path.dirname(path_physicalfile), exist_ok=True)
-            np.save(path_physicalfile, f0) # TODO REPLACE WITH PHYSICAL MODEL            
+            np.save(path_physicalfile, phys) 
             os.makedirs(os.path.dirname(path_volumefile), exist_ok=True)
             np.save(path_volumefile, volume)
             if mel_extractor is not None:
@@ -181,9 +179,9 @@ if __name__ == '__main__':
     volume_extractor = Volume_Extractor(args.data.block_size)
     
     # initialize physical model extractor
-    phys_extractor = Phys_Model(args.data.sampling_rate,
+    phys_extractor = Phys_Model.GFMDriver(args.data.sampling_rate,
                                 args.data.block_size,
-                                args.data.block_size/8 # TODO MAGIC NUMBER HERE, PUT IN PARAMS
+                                int(args.data.block_size) # TODO MAGIC NUMBER HERE, PUT IN PARAMS
                                 )
     
     # initialize mel extractor

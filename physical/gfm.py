@@ -3,7 +3,7 @@ import numpy as np
 import scipy
 import threading
 
-from gfm_iaif import gfm_iaif
+from .gfm_iaif import gfm_iaif
 
 import sounddevice as sd
 
@@ -226,7 +226,8 @@ class Resynth:
     def get_devices(self):
         return self.input_devices, self.output_devices
     
-    def process(self, audio_input, tract_shifts_per=None, glottis_shift=None, tilt_factor=None, return_parameters=False):
+    def process(self, audio_input, tract_shifts_per=None, glottis_shift=None, tilt_factor=None, 
+                return_parameters=False, pad=False):
         
         # esta pirula de aqui es porque estoy probando ajustarme a un framelength variable
         # para dejar que sounddevice controle la latencia. No funciona todavia
@@ -234,6 +235,9 @@ class Resynth:
         inner_hoplength = self.hoplength #max(8,inner_framelength/default_hopratio)
         #
         #
+        if pad and audio_input.shape[0]//inner_framelength != 0:
+            new_len = int(np.ceil(audio_input.shape[0]/inner_framelength)*inner_framelength)
+            audio_input = np.pad(audio_input, new_len-audio_input.shape[0])
         # first decompose in frames
         input_frames = librosa.util.frame(audio_input, 
                                           frame_length=inner_framelength, 
@@ -259,9 +263,9 @@ class Resynth:
         glottis_poles_pos = glottis_poles[2,:]
         glottis_freqs = np.angle(glottis_poles_pos)
         # glottis_qs = - 1 / np.tan(np.angle(glottis_poles) / 2)
-
+        
         # calculate resonant frequencies of vocal tract
-        assert tract_coeffs.shape[1] % 2 == 1
+        # assert tract_coeffs.shape[1] % 2 == 1
 
         # this is how it should be done 
         # but roots inside apply_along_axis has numerical errors?
@@ -297,24 +301,41 @@ class Resynth:
         if return_parameters:
             # only compute each physical parameter value for all audio outputs and return that
             # adding dims for glottis_freqs and substract the first coefficients that is always 1
-            outdims = glottis_coeffs.shape[0] -1 + 1 + tract_coeffs.shape[0] - 1 + tract_freqs.shape[0] 
-            out = np.zeros((audio_input.shape[0], outdims))
-            audiorange = np.arange(0,audio_input.shape[0], 1)
-            framerange = np.arange(inner_hoplength/2, nframes*inner_hoplength, inner_hoplength)
-            curdim = 0
-            for nc in range(1,glottis_coeffs.shape[0]):
-                out[:,curdim] = np.interp( audiorange, framerange, glottis_coeffs[nc,:] )
-                curdim += 1
-            out[:,curdim] = np.interp( audiorange, framerange, glottis_freqs )
-            curdim += 1
-            for nc in range(1,tract_coeffs.shape[0]):
-                out[:,curdim] = np.interp( audiorange, framerange, tract_coeffs[nc,:] )
-                curdim += 1
-            for nc in range(0,tract_freqs.shape[0]):
-                out[:,curdim] = np.interp( audiorange, framerange, tract_freqs[nc,:] )
-                curdim += 1
+            # outdims = glottis_coeffs.shape[0] -1 + 1 + tract_coeffs.shape[0] - 1 + tract_freqs.shape[0] 
+            # out = np.zeros((audio_input.shape[0], outdims))
+            # audiorange = np.arange(0,audio_input.shape[0], 1)
+            # framerange = np.arange(inner_hoplength/2, nframes*inner_hoplength, inner_hoplength)
+            # curdim = 0
+            # for nc in range(1,glottis_coeffs.shape[0]):
+            #     out[:,curdim] = np.interp( audiorange, framerange, glottis_coeffs[nc,:] )
+            #     curdim += 1
+            # out[:,curdim] = np.interp( audiorange, framerange, glottis_freqs )
+            # curdim += 1
+            # for nc in range(1,tract_coeffs.shape[0]):
+            #     out[:,curdim] = np.interp( audiorange, framerange, tract_coeffs[nc,:] )
+            #     curdim += 1
+            # for nc in range(0,tract_freqs.shape[0]):
+            #     out[:,curdim] = np.interp( audiorange, framerange, tract_freqs[nc,:] )
+            #     curdim += 1
 
-            return out
+            outdims = 1 + 1 + tract_freqs.shape[0] # glottis tilt, glottis freq, tract freq ####glottis_coeffs.shape[0] -1 + 1 + tract_coeffs.shape[0] - 1 + tract_freqs.shape[0] 
+            out = np.zeros((outdims, nframes)) 
+            out[0, :] = glottis_poles_real
+            out[1, :] = glottis_freqs
+            out[2:,:] = tract_freqs
+            # for nc in range(1,glottis_coeffs.shape[0]):
+            #     out[:,curdim] = glottis_coeffs[nc,:]
+            #     curdim += 1
+            # out[:,curdim] = glottis_freqs
+            # curdim += 1
+            # for nc in range(1,tract_coeffs.shape[0]):
+            #     out[:,curdim] = tract_coeffs[nc,:]
+            #     curdim += 1
+            # for nc in range(0,tract_freqs.shape[0]):
+            #     out[:,curdim] = tract_freqs[nc,:]
+            #     curdim += 1
+
+            return out.T
 
         # TODO convert these metrics to tenseness
         if True: # TODO test more the limits of these changes
